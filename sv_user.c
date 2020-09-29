@@ -665,8 +665,9 @@ static void SV_ReadClientMove (void)
 	// read ping time
 	if (sv.protocol != PROTOCOL_QUAKE && sv.protocol != PROTOCOL_QUAKEDP && sv.protocol != PROTOCOL_NEHAHRAMOVIE && sv.protocol != PROTOCOL_NEHAHRABJP && sv.protocol != PROTOCOL_NEHAHRABJP2 && sv.protocol != PROTOCOL_NEHAHRABJP3 && sv.protocol != PROTOCOL_DARKPLACES1 && sv.protocol != PROTOCOL_DARKPLACES2 && sv.protocol != PROTOCOL_DARKPLACES3 && sv.protocol != PROTOCOL_DARKPLACES4 && sv.protocol != PROTOCOL_DARKPLACES5 && sv.protocol != PROTOCOL_DARKPLACES6)
 		move->sequence = MSG_ReadLong(&sv_message);
-	move->time = move->clienttime = MSG_ReadFloat(&sv_message);
+	move->time = MSG_ReadFloat(&sv_message);
 	if (sv_message.badread) Con_Printf("SV_ReadClientMessage: badread at %s:%i\n", __FILE__, __LINE__);
+	move->clienttime = (float)move->time;
 	move->receivetime = (float)sv.time;
 
 #if DEBUGMOVES
@@ -674,7 +675,7 @@ static void SV_ReadClientMove (void)
 #endif
 	// limit reported time to current time
 	// (incase the client is trying to cheat)
-	move->time = min(move->time, move->receivetime + sv.frametime);
+	move->time = min(move->time, sv.time + sv.frametime);
 
 	// read current angles
 	for (i = 0;i < 3;i++)
@@ -789,9 +790,6 @@ static void SV_ExecuteClientMoves(void)
 	float moveframetime;
 	double oldframetime;
 	double oldframetime2;
-#ifdef NUM_PING_TIMES
-	double total;
-#endif
 	if (sv_numreadmoves < 1)
 		return;
 	// only start accepting input once the player is spawned
@@ -801,7 +799,7 @@ static void SV_ExecuteClientMoves(void)
 	Con_Printf("SV_ExecuteClientMoves: read %i moves at sv.time %f\n", sv_numreadmoves, (float)sv.time);
 #endif
 	// disable clientside movement prediction in some cases
-	if (ceil(max(sv_readmoves[sv_numreadmoves-1].receivetime - sv_readmoves[sv_numreadmoves-1].time, 0) * 1000.0) < sv_clmovement_minping.integer)
+	if (ceil(host_client->ping * 1000.0) < sv_clmovement_minping.integer)
 		host_client->clmovement_disabletimeout = host.realtime + sv_clmovement_minping_disabletime.value / 1000.0;
 	// several conditions govern whether clientside movement prediction is allowed
 	if (sv_readmoves[sv_numreadmoves-1].sequence && sv_clmovement_enable.integer && sv_clmovement_inputtimeout.value > 0 && host_client->clmovement_disabletimeout <= host.realtime && (PRVM_serveredictfloat(host_client->edict, disableclientprediction) == -1 || (PRVM_serveredictfloat(host_client->edict, movetype) == MOVETYPE_WALK && (!PRVM_serveredictfloat(host_client->edict, disableclientprediction)))))
@@ -823,6 +821,12 @@ static void SV_ExecuteClientMoves(void)
 				move->time = bound(sv.time - 1, move->time, sv.time); // prevent slowhack/speedhack combos
 				move->time = max(move->time, host_client->cmd.time); // prevent backstepping of time
 				moveframetime = bound(0, move->time - host_client->cmd.time, min(0.1, sv_clmovement_inputtimeout.value));
+				// if using prediction, we need to perform moves when packets are
+				// received, even if multiple occur in one frame
+				// (they can't go beyond the current time so there is no cheat issue
+				//  with this approach, and if they don't send input for a while they
+				//  start moving anyway, so the longest 'lagaport' possible is
+				//  determined by the sv_clmovement_inputtimeout cvar)
 
 				// discard (treat like lost) moves with too low distance from
 				// the previous one to prevent hacks using float inaccuracy
@@ -845,18 +849,8 @@ static void SV_ExecuteClientMoves(void)
 				host_client->cmd = *move;
 				host_client->movesequence = move->sequence;
 
-				// if using prediction, we need to perform moves when packets are
-				// received, even if multiple occur in one frame
-				// (they can't go beyond the current time so there is no cheat issue
-				//  with this approach, and if they don't send input for a while they
-				//  start moving anyway, so the longest 'lagaport' possible is
-				//  determined by the sv_clmovement_inputtimeout cvar)
-				if (moveframetime <= 0)
-					continue;
 				oldframetime = PRVM_serverglobalfloat(frametime);
 				oldframetime2 = sv.frametime;
-				// update ping time for qc to see while executing this move
-				host_client->ping = host_client->cmd.receivetime - host_client->cmd.time;
 				// the server and qc frametime values must be changed temporarily
 				PRVM_serverglobalfloat(frametime) = sv.frametime = moveframetime;
 				// if move is more than 50ms, split it into two moves (this matches QWSV behavior and the client prediction)
@@ -898,16 +892,6 @@ static void SV_ExecuteClientMoves(void)
 		// make sure that normal physics takes over immediately
 		host_client->clmovement_inputtimeout = 0;
 	}
-
-	// calculate average ping time
-	host_client->ping = host_client->cmd.receivetime - host_client->cmd.clienttime;
-#ifdef NUM_PING_TIMES
-	host_client->ping_times[host_client->num_pings % NUM_PING_TIMES] = host_client->cmd.receivetime - host_client->cmd.clienttime;
-	host_client->num_pings++;
-	for (i=0, total = 0;i < NUM_PING_TIMES;i++)
-		total += host_client->ping_times[i];
-	host_client->ping = total / NUM_PING_TIMES;
-#endif
 }
 
 void SV_ApplyClientMove (void)

@@ -1517,7 +1517,7 @@ void CL_UpdateMoveVars(void)
 	else
 	{
 		cl.moveflags = 0;
-		cl.movevars_ticrate = (cls.demoplayback ? 1.0f : host_timescale.value) / bound(1.0f, cl_netfps.value, 1000.0f);
+		cl.movevars_ticrate = (cls.demoplayback ? 1.0f : host_timescale.value) / bound(10.0f, cl_netfps.value, 1000.0f);
 		cl.movevars_timescale = (cls.demoplayback ? 1.0f : host_timescale.value);
 		cl.movevars_gravity = sv_gravity.value;
 		cl.movevars_stopspeed = cl_movement_stopspeed.value;
@@ -1869,8 +1869,8 @@ void CL_SendMove(void)
 	if (quemove)
 		cl.movecmd[0] = cl.cmd;
 
-	// don't predict more than 200fps
-	if (host.realtime >= cl.lastpackettime + 0.005)
+	// don't predict more than 250fps
+	if (host.realtime >= cl.lastpackettime + 0.004)
 		cl.movement_replay = true; // redo the prediction
 
 	// now decide whether to actually send this move
@@ -1878,11 +1878,12 @@ void CL_SendMove(void)
 
 	// don't send too often or else network connections can get clogged by a
 	// high renderer framerate
-	packettime = 1.0 / bound(1, cl_netfps.value, 1000);
+	// do try to send at least once per server frame to avoid choppy movement
+	packettime = 1.0 / bound(10, cl_netfps.value, 1000);
 	if (cl.movevars_timescale && cl.movevars_ticrate)
 	{
 		float maxtic = cl.movevars_ticrate / cl.movevars_timescale;
-		packettime = min(packettime, maxtic);
+		packettime = bound(maxtic / 4, packettime, maxtic);
 	}
 
 	// do not send 0ms packets because they mess up physics

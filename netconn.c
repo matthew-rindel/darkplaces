@@ -3603,17 +3603,37 @@ static int NetConn_ServerParsePacket(lhnetsocket_t *mysocket, unsigned char *dat
 void NetConn_ServerFrame(void)
 {
 	int i, length;
+#ifdef NUM_PING_TIMES
+	int j;
+	float totalping;
+#endif
 	lhnetaddress_t peeraddress;
 	unsigned char readbuffer[NET_HEADERSIZE+NET_MAXMESSAGE];
+
 	for (i = 0;i < sv_numsockets;i++)
 		while (sv_sockets[i] && (length = NetConn_Read(sv_sockets[i], readbuffer, sizeof(readbuffer), &peeraddress)) > 0)
 			NetConn_ServerParsePacket(sv_sockets[i], readbuffer, length, &peeraddress);
+
 	for (i = 0, host_client = svs.clients;i < svs.maxclients;i++, host_client++)
 	{
+		if (!host_client->netconnection)
+			continue;
+
+#ifdef NUM_PING_TIMES
+		// calculate harmonic mean ping time
+		host_client->ping_times[host_client->num_pings % NUM_PING_TIMES] = 1 / max((float)sv.time - host_client->cmd.clienttime, 0.0001);
+		host_client->num_pings++;
+		for (j=0, totalping = 0;j < NUM_PING_TIMES;j++)
+			totalping += host_client->ping_times[j];
+		host_client->ping = 1 / (totalping / NUM_PING_TIMES);
+#else
+		host_client->ping = (float)sv.time - host_client->cmd.clienttime;
+#endif
+
 		// never timeout loopback connections
-		if (host_client->netconnection && host.realtime > host_client->netconnection->timeout && LHNETADDRESS_GetAddressType(&host_client->netconnection->peeraddress) != LHNETADDRESSTYPE_LOOP)
+		if (host.realtime > host_client->netconnection->timeout && LHNETADDRESS_GetAddressType(&host_client->netconnection->peeraddress) != LHNETADDRESSTYPE_LOOP)
 		{
-			Con_Printf("Client \"%s\" connection timed out\n", host_client->name);
+			SV_BroadcastPrintf("Client \"%s\" connection timed out\n", host_client->name);
 			SV_DropClient(false);
 		}
 	}

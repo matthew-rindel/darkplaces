@@ -182,6 +182,9 @@ typedef struct csqcentityframedb_s
 // if defined this does ping smoothing, otherwise it does not
 //#define NUM_PING_TIMES 16
 
+// max age in seconds for bounding of async move times
+#define MAX_LATENCY 1
+
 #define NUM_SPAWN_PARMS 16
 
 typedef struct client_s

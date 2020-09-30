@@ -787,7 +787,7 @@ static void SV_ExecuteClientMoves(void)
 {
 	prvm_prog_t *prog = SVVM_prog;
 	int moveindex;
-	float moveframetime;
+	double moveframetime;
 	double oldframetime;
 	double oldframetime2;
 	if (sv_numreadmoves < 1)
@@ -818,9 +818,9 @@ static void SV_ExecuteClientMoves(void)
 				Con_Printf("%smove #%u %ims (%ims) %i %i '%i %i %i' '%i %i %i'\n", (move->time - host_client->cmd.time) > sv.frametime * 1.01 ? "^1" : "^2", move->sequence, (int)floor((move->time - host_client->cmd.time) * 1000.0 + 0.5), (int)floor(move->time * 1000.0 + 0.5), move->impulse, move->buttons, (int)move->viewangles[0], (int)move->viewangles[1], (int)move->viewangles[2], (int)move->forwardmove, (int)move->sidemove, (int)move->upmove);
 #endif
 				// this is a new move
-				move->time = bound(sv.time - 1, move->time, sv.time); // prevent slowhack/speedhack combos
+				move->time = bound(sv.time - MAX_LATENCY, move->time, sv.time); // prevent slowhack/speedhack combos
 				move->time = max(move->time, host_client->cmd.time); // prevent backstepping of time
-				moveframetime = bound(0, move->time - host_client->cmd.time, min(0.1, sv_clmovement_inputtimeout.value));
+				moveframetime = min(move->time - host_client->cmd.time, min(0.1, sv.frametime * ceil(sv_clmovement_inputtimeout.value / sv.frametime)));
 				// if using prediction, we need to perform moves when packets are
 				// received, even if multiple occur in one frame
 				// (they can't go beyond the current time so there is no cheat issue
@@ -836,12 +836,8 @@ static void SV_ExecuteClientMoves(void)
 				// already was performed serverside
 				if(moveframetime < 0.0005)
 				{
-					// count the move as LOST if we don't
-					// execute it but it has higher
-					// sequence count
-					if(host_client->movesequence)
-						if(move->sequence > host_client->movesequence)
-							host_client->movement_count[(move->sequence) % NETGRAPH_PACKETS] = -1;
+					// count the move as LOST if we don't execute it
+					host_client->movement_count[(move->sequence) % NETGRAPH_PACKETS] = -1;
 					continue;
 				}
 
@@ -862,7 +858,7 @@ static void SV_ExecuteClientMoves(void)
 				SV_Physics_ClientMove();
 				sv.frametime = oldframetime2;
 				PRVM_serverglobalfloat(frametime) = oldframetime;
-				host_client->clmovement_inputtimeout = sv_clmovement_inputtimeout.value;
+				host_client->clmovement_inputtimeout = min(0.1, sv_clmovement_inputtimeout.value);
 			}
 		}
 	}
